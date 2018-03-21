@@ -140,7 +140,7 @@ if __name__ == "__main__":
     # Print RMSE.
     """
     print("Predicted complete matrix:")
-    print(model.predict_complete())
+    print(model.predict_complete_clipped())
     print("Overall mean:")
     print(model.overall_mean)
     print("Biases:")
@@ -180,5 +180,5 @@ if __name__ == "__main__":
     
     # Write prediction
     print("Writing complete prediction...")
-    np.savetxt("eric_kangraye_shaun+v1.txt", model.predict_complete())
+    np.savetxt("eric_kangraye_shaun+v1.txt", model.predict_complete_clipped())
     input("Press Enter to finish")
