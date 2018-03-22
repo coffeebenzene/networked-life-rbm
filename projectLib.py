@@ -8,16 +8,21 @@ def getValidationData():
     return np.genfromtxt("validation.csv", delimiter=",", dtype=np.int)
 
 def getChapter4Data():
+    ### MODIFIED FOR numpy arrays ###
     # chapter 4 training dataset
-    return [[0, 0, 5], [2, 0, 5], [3, 0, 4], [1, 1, 1], [2, 1, 1], [3, 1, 4], [0, 2, 4], [1, 2, 1], \
-            [2, 2, 2], [3, 2, 4], [0, 3, 3], [1, 3, 4], [3, 3, 3], [0, 4, 1], [1, 4, 5], [2, 4, 3]]
+    return np.array([[0, 0, 5], [2, 0, 5], [3, 0, 4], [1, 1, 1], [2, 1, 1], 
+                     [3, 1, 4], [0, 2, 4], [1, 2, 1], [2, 2, 2], [3, 2, 4],
+                     [0, 3, 3], [1, 3, 4], [3, 3, 3], [0, 4, 1], [1, 4, 5],
+                     [2, 4, 3]])
 
 def getUsefulStats(training):
-    movies = [x[0] for x in training]
-    u_movies = np.unique(movies).tolist()
+    ### MODIFIED FOR numpy arrays ###
+    training = np.array(training)
+    movies = training[:,0]
+    u_movies = np.unique(movies)
 
-    users = [x[1] for x in training]
-    u_users = np.unique(users).tolist()
+    users = training[:,1]
+    u_users = np.unique(users)
 
     return {
         "movies": movies, # movie IDs
@@ -28,8 +33,8 @@ def getUsefulStats(training):
         "u_users": u_users, # unique user IDs
         "n_users": len(u_users), # number of unique users
 
-        "ratings": [x[2] for x in training], # ratings
-        "n_ratings": len(training) # number of ratings
+        "ratings": training[:,2], # ratings
+        "n_ratings": len(training), # number of ratings
     }
 
 def getRatingsForUser(user, training):

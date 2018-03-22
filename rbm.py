@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.special
 import projectLib as lib
 
 # set highest rating
@@ -32,30 +33,41 @@ def getInitialWeights(m, F, K):
     return np.random.normal(0, 0.1, (m, F, K))
 
 def sig(x):
-    ### TO IMPLEMENT ###
+    ### Question 2.1 ###
     # x is a real vector of size n
     # ret should be a vector of size n where ret_i = sigmoid(x_i)
-    return None
+    return scipy.special.expit(x)
 
 def visibleToHiddenVec(v, w):
-    ### TO IMPLEMENT ###
+    ### Question 2.2 ###
     # v is a matrix of size m x 5. Each row is a binary vector representing a rating
     #    OR a probability distribution over the rating
     # w is a list of matrices of size m x F x 5
     # ret should be a vector of size F
-    return None
+    h = np.zeros(w.shape[1])
+    for k in range(K):
+        vk = v[:,k] # column k of matrix v as a 1D array
+        wk = w[:,:,k] # Matrix k of tensor w.
+        h += np.dot(vk,wk) # element i of vk matches with row i of wk
+    h = sig(h)
+    return h
 
 def hiddenToVisible(h, w):
-    ### TO IMPLEMENT ###
+    ### Question 2.3 ###
     # h is a binary vector of size F
     # w is an array of size m x F x 5
     # ret should be a matrix of size m x 5, where m
-    #   is the number of movies the user has seen.
-    #   Remember that we do not reconstruct movies that the user
-    #   has not rated! (where reconstructing means getting a distribution
-    #   over possible ratings).
-    #   We only do so when we predict the rating a user would have given to a movie.
-    return None
+    #     is the number of movies the user has seen.
+    #     Remember that we do not reconstruct movies that the user
+    #     has not rated! (where reconstructing means getting a distribution
+    #     over possible ratings).
+    #     We only do so when we predict the rating a user would have given to a movie.
+    v = np.zeros((w.shape[0], K))
+    for k in range(K):
+        wk = w[:,:,k] # Matrix k of tensor w.
+        v[:,k] = np.dot(wk,h) # column j of wk matches with element j of h.
+    v = sig(v)
+    return v
 
 def probProduct(v, p):
     # v is a matrix of size m x 5
@@ -77,7 +89,7 @@ def sample(p):
     return np.array(samples <= p, dtype=int)
 
 def getPredictedDistribution(v, w, wq):
-    ### TO IMPLEMENT ###
+    ### Question 2.4 ###
     # This function returns a distribution over the ratings for movie q, if user data is v
     # v is the dataset of the user we are predicting the movie for
     #   It is a m x 5 matrix, where m is the number of movies in the
@@ -91,35 +103,47 @@ def getPredictedDistribution(v, w, wq):
     #   - Backpropagate these hidden states to obtain
     #       the distribution over the movie whose associated weights are wq
     # ret is a vector of size 5
-    return None
+    h_prob = visibleToHiddenVec(v, w)
+    h_sample = sample(h_prob)
+    wq_tensor = wq[np.newaxis,:,:] # m x F x K tensor (m=1, K=5)
+    predicted_vq = hiddenToVisible(h_sample, wq_tensor) # Returns 1xK matrix
+    predicted_vq = predicted_vq[0]
+    return predicted_vq
 
 def predictRatingMax(ratingDistribution):
-    ### TO IMPLEMENT ###
+    ### Question 2.5 ###
     # ratingDistribution is a probability distribution over possible ratings
     #   It is obtained from the getPredictedDistribution function
     # This function is one of three you are to implement
     # that returns a rating from the distribution
     # We decide here that the predicted rating will be the one with the highest probability
-    return None
+    max_prob = np.max(ratingDistribution)
+    likely_ratings = np.flatnonzero(ratingDistribution == max_prob)
+    rating = np.median(likely_ratings) # In event of tie, choose middle rating
+    return rating
 
 def predictRatingMean(ratingDistribution):
-    ### TO IMPLEMENT ###
+    ### Question 2.5 ###
     # ratingDistribution is a probability distribution over possible ratings
     #   It is obtained from the getPredictedDistribution function
     # This function is one of three you are to implement
     # that returns a rating from the distribution
     # We decide here that the predicted rating will be the expectation over ratingDistribution
-    return None
+    rating_sum = np.dot(ratingDistribution, [1,2,3,4,5])
+    prob_sum = np.sum(ratingDistribution)
+    return rating_sum/prob_sum
 
 def predictRatingExp(ratingDistribution):
-    ### TO IMPLEMENT ###
+    ### Question 2.5 ###
     # ratingDistribution is a probability distribution over possible ratings
     #   It is obtained from the getPredictedDistribution function
     # This function is one of three you are to implement
     # that returns a rating from the distribution
     # We decide here that the predicted rating will be the expectation over
     # the softmax applied to ratingDistribution
-    return None
+    softmax_distribution = softmax(ratingDistribution)
+    expected_rating = np.dot(softmax_distribution, [1,2,3,4,5])
+    return expected_rating
 
 def predictMovieForUser(q, user, W, training, predictType="exp"):
     # movie is movie idx
