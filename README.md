@@ -33,3 +33,9 @@ Regularised model
 lambda = 0.0027179408435172364  
 training RMSE = 0.8981572110536863  
 validation RMSE = 1.0195162850501946
+
+## RBM
+
+The given template code uses a significant level of the wrong abstraction, resulting in spaghetti code. Mixing of types and poor naming also make the code hard to read.
+
+A complete rewrite is under consideration.

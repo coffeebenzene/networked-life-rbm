@@ -17,7 +17,7 @@ K = 5
 # SET PARAMETERS HERE!!!
 # F = number of hidden units
 F = 30
-epochs = 100
+epochs = 10
 gradientLearningRate = 0.1
 
 # Initialise all our arrays
@@ -96,4 +96,5 @@ for epoch in range(1, epochs+1): ### MODIFIED FOR bugfix, off-by-one error ###
 # This part you can write on your own
 # you could plot the evolution of the training and validation RMSEs for example
 predictedRatings = np.array([rbm.predictForUser(user, W, training) for user in trStats["u_users"]])
+print("Time = {}".format(time.time() - start))
 np.savetxt("eric_kangraye_shaun+v2.txt", predictedRatings)

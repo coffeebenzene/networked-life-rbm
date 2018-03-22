@@ -165,6 +165,10 @@ def predict(movies, users, W, training, predictType="exp"):
     return [predictMovieForUser(movie, user, W, training, predictType=predictType) for (movie, user) in zip(movies, users)]
 
 def predictForUser(user, W, training, predictType="exp"):
-    ### TO IMPLEMENT
+    ### Part 3.1 ###
     # given a user ID, predicts all movie ratings for the user
-    return None
+    user_ratings = np.zeros(W.shape[0])
+    for q in range(len(user_ratings)):
+        rating = predictMovieForUser(q, user, W, training)
+        user_ratings[q] = rating
+    return user_ratings
