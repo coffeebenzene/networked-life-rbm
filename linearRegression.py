@@ -1,8 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-import projectLib
-
 # Inputs should be numpy 2D array, with missing values as nan.
 # Arrays will be converted into masked arrays.
 # Rows are users, columns are movies.
@@ -15,9 +13,10 @@ class BaselinePredictor:
         Note: Regulariser will be scaled proportional to the number of data 
               elements by the class. i.e. regulariser used will be *n.
         Computation uses least square regularised version as in HW2 (for Q4)
-        i.e. solve for b: (A.T*A + regulariser*n*I) b = A^T*c
+        i.e. solve for b: (A.T*A + n*regulariser*I) b = A^T*c
         """
-        self.train, self.stats = data_to_mat_stats(data)
+        n_users = np.max(data[:,1])+1 # Assume no "holes" (unassigned values)
+        n_movies = np.max(data[:,0])+1
         
         # c vector (baseline ratings)
         ratings = data[:,[2]] # [2] in column dimension to select column vector
@@ -25,15 +24,17 @@ class BaselinePredictor:
         c = ratings - self.overall_mean
         
         # A matrix
-        num_elements = self.stats["n_ratings"]
-        data_width = self.stats["n_users"] + self.stats["n_movies"]
+        num_elements = len(data)
+        data_width = n_users + n_movies
         A = np.zeros((num_elements, data_width))
         for i, element in enumerate(data):
             movie, user, rating = element
             A[i, user] = 1
-            A[i, self.stats["n_users"] + movie] = 1
+            A[i, n_users + movie] = 1
         
         # compute left and right sides of regression equation
+        # left = (A.T*A + n*regulariser*I)
+        # right = A^T*c
         left = np.dot(A.T,A) + num_elements*regulariser*np.eye(A.shape[1])
         right = np.dot(A.T, c)
         
@@ -42,8 +43,8 @@ class BaselinePredictor:
         opt_parameters = linear_prog[0]
         
         # Extract biases
-        self.row_bias = opt_parameters[:self.stats["n_users"]]
-        self.col_bias = opt_parameters[self.stats["n_users"]:]
+        self.row_bias = opt_parameters[:n_users]
+        self.col_bias = opt_parameters[n_users:]
         
         # check: rank of data < number of columns (not full rank)
         if linear_prog[2] < data_width:
@@ -62,16 +63,87 @@ class BaselinePredictor:
     def predict_complete_clipped(self):
         return np.clip(self.predict_complete(), 0, 5)
 
+class kNNPredictor:
+    def __init__(self, data, regulariser=0, k=0):
+        """
+        Takes in numpy data array, [[movie, user, rating] ...] as training data.
+        Users correspond to rows, movies correspond to columns.
+        Computes via BaselinePredictor first, then does kNN.
+        Copied from HW2
+        """
+        self.baseline = BaselinePredictor(data, regulariser)
+        self.train = data_to_ma(data)
+        self.error_mat = self.train - self.baseline.predict_complete_clipped()
+        
+        nrows, ncols = self.train.shape
+        col_sim = np.ma.zeros((ncols, ncols))
+        col_sim[np.diag_indices(ncols)] = np.ma.masked # Mask same value (i,i) pairs.
+        for i,j in zip(*np.tril_indices(ncols, k=-1)): # get unique pairs
+            col_i = self.error_mat[:,i]
+            col_j = self.error_mat[:,j]
+            col_sim[i,j] = cos_similarity(col_i, col_j)
+            col_sim[j,i] = col_sim[i,j]
+        # absolute value to account for inverse correlation
+        # negate so that sort will put larger correlation first (numpy sorts small->big)
+        col_abs_sim = -np.abs(col_sim)
+        # Sort and extract first k neighbours.
+        # col i in train matrix corresponds to row i in neighbours.
+        self.neighbours = np.argsort(col_abs_sim)[:,:k]
+        self.col_sim = col_sim
+    
+    def predict(self, row, col):
+        val = self.baseline.predict(row, col)
+        # TODO: replace neighbour calculation with numpy for faster prediction.
+        weighted_sum = 0
+        weights = 0
+        train_mat = self.train
+        for n in self.neighbours[col]:
+            if not (np.ma.is_masked(train_mat[row, n]) or np.isnan(train_mat[row, n]) ):
+                w = self.col_sim[col, n]
+                weighted_sum += w*self.error_mat[row, n]
+                weights += np.abs(w)
+        
+        if weights != 0:
+            val += weighted_sum/weights
+        return val
+    
+    def predict_clipped(self, row, col):
+        return np.clip(self.predict(row, col), 0, 5)
+    
+    def predict_complete(self):
+        predicted = np.empty(self.train.shape)
+        for row, col in np.ndindex(predicted.shape):
+            predicted[row, col] = self.predict(row, col)
+        return predicted
+    
+    def predict_complete_clipped(self):
+        return np.clip(self.predict_complete(), 0, 5)
 
+def cos_similarity(u, v):
+    # Compute mask
+    or_mask = np.logical_or(u.mask, v.mask)
+    # Reject if only 1 common value. (Too little to correlate)
+    if np.sum(np.logical_not(or_mask)) <= 1:
+        return 0
+    # Handle masking
+    u = np.ma.MaskedArray(u, or_mask)
+    v = np.ma.MaskedArray(v, or_mask)
+    # based on scipy.spatial.distance.cosine (which calls .correlation)
+    uv = np.asscalar(np.sum(u*v))
+    uu = np.sum(np.square(u))
+    vv = np.sum(np.square(v))
+    return uv / np.sqrt(uu * vv)
 
-def data_to_mat_stats(data):
-    stats = projectLib.getUsefulStats(data)
-    mat = np.empty((stats["n_users"], stats["n_movies"]))
-    mat.fill(np.nan)
+def data_to_ma(data):
+    """ converts sequence of points [col, row, value] to numpy masked array
+    """
+    n_row = np.max(data[:,1])+1 # Assume no "holes" (unassigned values)
+    n_col = np.max(data[:,0])+1
+    mat = np.ma.masked_all((n_row, n_col))
     for element in data:
         movie, user, rating = element
         mat[user, movie] = rating
-    return mat, stats
+    return mat
 
 def predicted_rmse(model, data):
     total_sq_error = 0
@@ -128,11 +200,12 @@ if __name__ == "__main__":
     np.set_printoptions(precision=3)
     
     # Question 1.1 - RMSE of training data. (Training loss)
+    print("-"*40)
     print("Non-regularised model")
     
-    # train_data = np.array(projectLib.getChapter4Data())
-    train_data = projectLib.getTrainingData()
-    validation_data = projectLib.getValidationData()
+    # train_data = projectLib.getChapter4Data()
+    train_data = np.genfromtxt("training.csv", delimiter=",", dtype=np.int)
+    validation_data = np.genfromtxt("validation.csv", delimiter=",", dtype=np.int)
     
     # Do prediction, mse is computed in the BaselinePredictor class
     model = BaselinePredictor(train_data)
@@ -152,38 +225,72 @@ if __name__ == "__main__":
     rmse = predicted_rmse(model, validation_data)
     print("validation RMSE = {}".format(rmse))
     
-    
     # Question 1.2 Regularised model
     # Linear regression part of Question 3: Fine tuning regularisation parameter
     # Regularisation parameter is determined by guess and check.
+    print()
+    print("-"*40)
     print("Regularised model")
     
-    l=0.0027179408435172364
-    """ lambda determined to be 0.0027179408435172364 on training and validation.
+    l=0
+    k=0
+    """ """
+    ## lambda determined to be 0 by guess and check.
     # Start with lambda in [-5,5]
     min_log_l = -5
     max_log_l = 5
     
     # Iterate guess and check 6 times (after testing, it converges after 6 times)
     for i in range(6):
-        min_log_l, max_log_l = log_lambda_guess(BaselinePredictor, train_data, validation_data, 
+        min_log_l, max_log_l = log_lambda_guess(kNNPredictor, train_data, validation_data, 
                                                 min_log_l, max_log_l)
+        print("log_l range {} to {}".format(min_log_l, max_log_l))
     log_l = (min_log_l + max_log_l)/2
     l = 10**log_l
-    """
-    # for submission
-    train_data = np.genfromtxt("test.csv", delimiter=",", dtype=np.int)
+    print("l = {}".format(l))
     
-    # Regularised model
+    ## k determined to be X by guess and check
+    k = 0
+    lowest_error = None
+    for i in range(21):
+        model = kNNPredictor(train_data, regulariser=l, k=i)
+        error = predicted_rmse(model, validation_data)
+        if lowest_error is None or error < lowest_error:
+            k = i
+            lowest_error = error
+        print("i={}, error={}, lowest_error = {}, k = {}".format(i, error, lowest_error, k))
+    
+    # for submission
+    print("-"*40)
     print("lambda = {}".format(l))
+    print("k = {}".format(k))
+    
+    # Regularised model for Baseline
+    print("-"*40)
+    print("Baseline Model:")
     model = BaselinePredictor(train_data, regulariser=l)
     
     rmse = predicted_rmse(model, train_data)
     print("training RMSE = {}".format(rmse))
-    #rmse = predicted_rmse(model, validation_data)
-    #print("validation RMSE = {}".format(rmse))
+    rmse = predicted_rmse(model, validation_data)
+    print("validation RMSE = {}".format(rmse))
+    
+    # Regularised model for kNN
+    print("-"*40)
+    print("kNN Model:")
+    model = kNNPredictor(train_data, regulariser=l, k=k)
+    
+    rmse = predicted_rmse(model, train_data)
+    print("training RMSE = {}".format(rmse))
+    rmse = predicted_rmse(model, validation_data)
+    print("validation RMSE = {}".format(rmse))
+    
+    # Combined prediction
+    print("-"*40)
+    train_data = np.concatenate((train_data,validation_data), axis=0)
+    model = kNNPredictor(train_data, regulariser=l, k=k)
     
     # Write prediction
     print("Writing complete prediction...")
-    np.savetxt("eric_kangraye_shaun+v1.txt", model.predict_complete_clipped())
+    np.savetxt("eric_kangraye_shaun+v2.txt", model.predict_complete_clipped())
     input("Press Enter to finish")
