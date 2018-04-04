@@ -23,7 +23,7 @@ LinearRegression.py was completely rewritten based on the group's HW4.
 
 The prediction model is put into a class for better usability.
 
-Results:
+Results: (On training and validation)
 
 Non-regularised model  
 training RMSE = 0.8470026505119093  
@@ -33,6 +33,14 @@ Regularised model
 lambda = 0.0027179408435172364  
 training RMSE = 0.8981572110536863  
 validation RMSE = 1.0195162850501946
+
+Results: (On test)
+Non-regularised model
+WARNING: matrix is singular. rank 219<220
+training RMSE = 0.6199293704806721
+Regularised model
+lambda = 0.0027179408435172364
+training RMSE = 0.6860092529964353
 
 ## RBM
 
