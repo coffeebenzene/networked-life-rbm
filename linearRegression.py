@@ -64,7 +64,7 @@ class BaselinePredictor:
         return np.clip(self.predict_complete(), 0, 5)
 
 class kNNPredictor:
-    def __init__(self, data, regulariser=0, k=0):
+    def __init__(self, data, regulariser=0, krow=0, kcol=0):
         """
         Takes in numpy data array, [[movie, user, rating] ...] as training data.
         Users correspond to rows, movies correspond to columns.
@@ -73,38 +73,68 @@ class kNNPredictor:
         """
         self.baseline = BaselinePredictor(data, regulariser)
         self.train = data_to_ma(data)
+        self.train += 0.01  # Offset to prevent division by 0 for cos similarity
+                            # Prediction is linear, so shouldn't affect results.
         self.error_mat = self.train - self.baseline.predict_complete_clipped()
         
         nrows, ncols = self.train.shape
+        
+        # Compute column similarity matrix, and array of k nearest columns.
         col_sim = np.ma.zeros((ncols, ncols))
-        col_sim[np.diag_indices(ncols)] = np.ma.masked # Mask same value (i,i) pairs.
-        for i,j in zip(*np.tril_indices(ncols, k=-1)): # get unique pairs
+        col_sim[np.diag_indices(ncols)] = np.ma.masked  # Mask same value (i,i) pairs.
+        for i,j in zip(*np.tril_indices(ncols, k=-1)):  # get unique pairs
             col_i = self.error_mat[:,i]
             col_j = self.error_mat[:,j]
-            col_sim[i,j] = cos_similarity(col_i, col_j)
+            col_sim[i,j] = cos_similarity(col_i, col_j)  # populate similarity matrix
             col_sim[j,i] = col_sim[i,j]
         # absolute value to account for inverse correlation
         # negate so that sort will put larger correlation first (numpy sorts small->big)
         col_abs_sim = -np.abs(col_sim)
-        # Sort and extract first k neighbours.
-        # col i in train matrix corresponds to row i in neighbours.
-        self.neighbours = np.argsort(col_abs_sim)[:,:k]
+        # Sort and extract first kcol neighbour columns.
+        # col i in train matrix corresponds to row i in neighbour_cols.
+        self.neighbour_cols = np.argsort(col_abs_sim)[:,:kcol]
         self.col_sim = col_sim
+        
+        # Compute row similarity matrix, and array of k nearest rows.
+        row_sim = np.ma.zeros((nrows, nrows))
+        row_sim[np.diag_indices(nrows)] = np.ma.masked  # Mask same value (i,i) pairs.
+        for i,j in zip(*np.tril_indices(nrows, k=-1)):  # get unique pairs
+            row_i = self.error_mat[i,:]
+            row_j = self.error_mat[j,:]
+            row_sim[i,j] = cos_similarity(row_i, row_j)  # populate similarity matrix
+            row_sim[j,i] = row_sim[i,j]
+        # Just like above, use negative absolute value for ordering.
+        row_abs_sim = -np.abs(row_sim)
+        # Sort and extract first krow neighbour rows.
+        # row i in train matrix corresponds to row i in neighbour_rows.
+        self.neighbour_rows = np.argsort(row_abs_sim)[:,:krow]
+        self.row_sim = row_sim
     
     def predict(self, row, col):
         val = self.baseline.predict(row, col)
-        # TODO: replace neighbour calculation with numpy for faster prediction.
-        weighted_sum = 0
-        weights = 0
-        train_mat = self.train
-        for n in self.neighbours[col]:
-            if not (np.ma.is_masked(train_mat[row, n]) or np.isnan(train_mat[row, n]) ):
-                w = self.col_sim[col, n]
-                weighted_sum += w*self.error_mat[row, n]
-                weights += np.abs(w)
         
-        if weights != 0:
+        # Compute for column similarity
+        neighbour_cols = self.neighbour_cols[col]
+        errors_col = self.error_mat[row, neighbour_cols] # error for row, across columns.
+        col_sim = np.ma.MaskedArray(self.col_sim[col, neighbour_cols], errors_col.mask)
+        
+        weighted_sum = np.sum(col_sim*errors_col) 
+        weights = np.sum(np.abs(col_sim))
+        
+        if (not np.ma.is_masked(weights)) and weights != 0:
             val += weighted_sum/weights
+        
+        # Compute for row similarity
+        neighbour_rows = self.neighbour_rows[row]
+        errors_row = self.error_mat[neighbour_rows, col] # error for column, down rows.
+        row_sim = np.ma.MaskedArray(self.row_sim[row, neighbour_rows], errors_row.mask)
+        
+        weighted_sum = np.sum(row_sim*errors_row) 
+        weights = np.sum(np.abs(row_sim))
+        
+        if (not np.ma.is_masked(weights)) and weights != 0:
+            val += weighted_sum/weights
+        
         return val
     
     def predict_clipped(self, row, col):
@@ -203,9 +233,11 @@ if __name__ == "__main__":
     print("-"*40)
     print("Non-regularised model")
     
-    # train_data = projectLib.getChapter4Data()
     train_data = np.genfromtxt("training.csv", delimiter=",", dtype=np.int)
     validation_data = np.genfromtxt("validation.csv", delimiter=",", dtype=np.int)
+    #import projectLib
+    #train_data = projectLib.getChapter4Data()
+    #validation_data = projectLib.getChapter4Data()
     
     # Do prediction, mse is computed in the BaselinePredictor class
     model = BaselinePredictor(train_data)
@@ -232,38 +264,43 @@ if __name__ == "__main__":
     print("-"*40)
     print("Regularised model")
     
-    l=0
-    k=0
-    """ """
-    ## lambda determined to be 0 by guess and check.
+    l=0.0008796704432324492
+    krow=0
+    kcol=0
+    """ 
+    ## lambda determined to be 0.0008796704432324492 by guess and check.
     # Start with lambda in [-5,5]
     min_log_l = -5
     max_log_l = 5
     
     # Iterate guess and check 6 times (after testing, it converges after 6 times)
     for i in range(6):
-        min_log_l, max_log_l = log_lambda_guess(kNNPredictor, train_data, validation_data, 
+        min_log_l, max_log_l = log_lambda_guess(BaselinePredictor, train_data, validation_data, 
                                                 min_log_l, max_log_l)
         print("log_l range {} to {}".format(min_log_l, max_log_l))
     log_l = (min_log_l + max_log_l)/2
     l = 10**log_l
     print("l = {}".format(l))
     
-    ## k determined to be X by guess and check
-    k = 0
+    ## kcol, krow determined to be 0,0 by guess and check
+    krow = 0
+    kcol = 0
     lowest_error = None
-    for i in range(21):
-        model = kNNPredictor(train_data, regulariser=l, k=i)
-        error = predicted_rmse(model, validation_data)
-        if lowest_error is None or error < lowest_error:
-            k = i
-            lowest_error = error
-        print("i={}, error={}, lowest_error = {}, k = {}".format(i, error, lowest_error, k))
-    
+    for i in range(6):
+        for j in range(6):
+            model = kNNPredictor(train_data, regulariser=l, krow=i, kcol=j)
+            error = predicted_rmse(model, validation_data)
+            if lowest_error is None or error < lowest_error:
+                krow = i
+                kcol = j
+                lowest_error = error
+            print("i,j={},{}, error={}, lowest_error={}, krow, kcol={}, {}".format(i,j, error, lowest_error, krow, kcol))
+    """
     # for submission
     print("-"*40)
     print("lambda = {}".format(l))
-    print("k = {}".format(k))
+    print("krow = {}".format(krow))
+    print("kcol = {}".format(kcol))
     
     # Regularised model for Baseline
     print("-"*40)
@@ -278,7 +315,7 @@ if __name__ == "__main__":
     # Regularised model for kNN
     print("-"*40)
     print("kNN Model:")
-    model = kNNPredictor(train_data, regulariser=l, k=k)
+    model = kNNPredictor(train_data, regulariser=l, krow=krow, kcol=kcol)
     
     rmse = predicted_rmse(model, train_data)
     print("training RMSE = {}".format(rmse))
@@ -288,7 +325,7 @@ if __name__ == "__main__":
     # Combined prediction
     print("-"*40)
     train_data = np.concatenate((train_data,validation_data), axis=0)
-    model = kNNPredictor(train_data, regulariser=l, k=k)
+    model = kNNPredictor(train_data, regulariser=l, krow=krow, kcol=kcol)
     
     # Write prediction
     print("Writing complete prediction...")
