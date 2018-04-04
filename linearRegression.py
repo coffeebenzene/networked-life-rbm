@@ -84,7 +84,7 @@ def predicted_rmse(model, data):
     rmse = np.sqrt(total_sq_error/num_elements)
     return rmse
 
-def log_lambda_guess(model, train_data, validation_data, min_log_l, max_log_l, number=11):
+def log_lambda_guess(model_class, train_data, validation_data, min_log_l, max_log_l, number=11):
     """
     Computes the rmse of model with a series of lamba/regulariser value.
     By applying this to validation data, the lambda which results in the 
@@ -103,7 +103,7 @@ def log_lambda_guess(model, train_data, validation_data, min_log_l, max_log_l, n
     rmse_list = []
     
     for l in lambdas:
-        model = BaselinePredictor(train_data, regulariser=l)
+        model = model_class(train_data, regulariser=l)
         rmse = predicted_rmse(model, validation_data)
         rmse_list.append(rmse)
     # Find index of min RMSE
@@ -158,16 +158,21 @@ if __name__ == "__main__":
     # Regularisation parameter is determined by guess and check.
     print("Regularised model")
     
+    l=0.0027179408435172364
+    """ lambda determined to be 0.0027179408435172364 on training and validation.
     # Start with lambda in [-5,5]
     min_log_l = -5
     max_log_l = 5
     
     # Iterate guess and check 6 times (after testing, it converges after 6 times)
     for i in range(6):
-        min_log_l, max_log_l = log_lambda_guess(model, train_data, validation_data, 
+        min_log_l, max_log_l = log_lambda_guess(BaselinePredictor, train_data, validation_data, 
                                                 min_log_l, max_log_l)
     log_l = (min_log_l + max_log_l)/2
     l = 10**log_l
+    """
+    # for submission
+    train_data = np.genfromtxt("test.csv", delimiter=",", dtype=np.int)
     
     # Regularised model
     print("lambda = {}".format(l))
@@ -175,8 +180,8 @@ if __name__ == "__main__":
     
     rmse = predicted_rmse(model, train_data)
     print("training RMSE = {}".format(rmse))
-    rmse = predicted_rmse(model, validation_data)
-    print("validation RMSE = {}".format(rmse))
+    #rmse = predicted_rmse(model, validation_data)
+    #print("validation RMSE = {}".format(rmse))
     
     # Write prediction
     print("Writing complete prediction...")
